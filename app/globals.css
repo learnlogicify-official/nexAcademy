@@ -1,0 +1,406 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 30, 30, 30;
+  --background-end-rgb: 30, 30, 30;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1E1E1E;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2D2D2D;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3D3D3D;
+}
+
+/* CodeMirror styles */
+.cm-editor {
+  display: none;
+}
+
+/* Custom styles */
+.problem-number {
+  @apply w-8 h-8 mb-2 rounded-full flex items-center justify-center text-sm font-medium cursor-pointer;
+  transition: all 0.2s ease;
+}
+
+.problem-number:hover {
+  @apply bg-[#404040];
+}
+
+.problem-number.active {
+  @apply bg-blue-600 text-white;
+}
+
+.tab-button {
+  @apply px-4 py-2 text-sm font-medium;
+  position: relative;
+}
+
+.tab-button.active {
+  @apply text-white;
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  @apply bg-blue-600;
+}
+
+.tab-button:not(.active) {
+  @apply text-gray-400;
+}
+
+.nav-button {
+  @apply p-2 hover:bg-[#404040] rounded-md transition-colors;
+}
+
+.code-input {
+  @apply bg-[#2D2D2D] text-sm border-none focus:ring-0 rounded;
+}
+
+.run-button {
+  @apply px-4 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors;
+}
+
+.submit-button {
+  @apply px-4 py-1.5 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors;
+}
+
+.sample-case {
+  @apply bg-[#2D2D2D] rounded-md p-4 mb-4;
+}
+
+.sample-case-input, .sample-case-output {
+  @apply font-mono bg-[#1E1E1E] p-3 rounded-md text-sm;
+}
+
+.sample-case-output {
+  @apply font-mono bg-[#1E1E1E] p-3 rounded-md text-sm border border-transparent;
+}
+
+.sample-case-output.success {
+  border-color: rgb(34, 197, 94); /* green-500 */
+}
+
+.sample-case-output.error {
+  border-color: rgb(239, 68, 68); /* red-500 */
+}
+
+.sample-case-output.warning {
+  border-color: rgb(234, 179, 8); /* yellow-500 */
+}
+
+.explanation-list {
+  @apply list-disc list-inside text-gray-300 space-y-1;
+}
+
+/* Layout styles */
+.main-layout {
+  @apply h-screen bg-[#1E1E1E] text-white flex flex-col overflow-hidden;
+}
+
+.top-nav {
+  @apply h-12 bg-[#2D2D2D] border-b border-[#404040] flex items-center px-4 flex-shrink-0;
+}
+
+.split-view {
+  @apply flex flex-1 overflow-hidden relative;
+}
+
+.panel {
+  @apply flex flex-col relative overflow-hidden;
+  min-width: 200px; /* Minimum width for each panel */
+  max-width: calc(100% - 200px); /* Maximum width for each panel */
+}
+
+.panel-left {
+  @apply border-r border-[#404040];
+  width: 50%; /* Default width */
+}
+
+.panel-right {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 3rem);
+  background-color: rgb(30, 30, 30);
+  border-left: 1px solid rgb(40, 40, 40);
+  position: relative;
+  overflow: hidden;
+  width: 50%; /* Default width */
+}
+
+.panel-header {
+  height: 3rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid rgb(40, 40, 40);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.panel-content {
+  @apply flex-1 overflow-y-auto p-6;
+}
+
+/* Editor container and problem numbers layout */
+.editor-container {
+  flex: 1;
+  position: relative;
+  height: calc(100vh - 12rem);
+  margin-right: 3rem;
+  overflow: hidden;
+}
+
+.code-editor-wrapper {
+  @apply flex-1;
+  height: 100%;
+  overflow: hidden;
+}
+
+.problem-numbers {
+  @apply absolute top-0 right-0 w-12 h-full bg-[#2D2D2D] border-l border-[#404040] flex flex-col items-center py-2 overflow-y-auto;
+  right: -3rem;
+}
+
+.nav-footer {
+  height: 3.5rem;
+  padding: 0 1rem;
+  border-top: 1px solid rgb(40, 40, 40);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: rgb(30, 30, 30);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20; /* Higher than question-nav */
+}
+
+.nav-button-large {
+  @apply flex items-center px-4 py-1.5 text-sm font-medium hover:bg-[#404040] rounded-md transition-colors;
+}
+
+/* Card styles */
+.card {
+  @apply bg-[#1E1E1E] border-[#2D2D2D] rounded-lg shadow-lg;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-[#22C55E] hover:bg-[#16A34A] text-white;
+}
+
+.btn-secondary {
+  @apply bg-[#2D2D2D] hover:bg-[#3D3D3D] text-white;
+}
+
+/* Badge styles */
+.badge {
+  @apply px-2 py-1 rounded-full text-xs font-medium;
+}
+
+.badge-easy {
+  @apply bg-green-600 text-white;
+}
+
+.badge-medium {
+  @apply bg-yellow-600 text-white;
+}
+
+.badge-hard {
+  @apply bg-red-600 text-white;
+}
+
+/* Monaco Editor styles */
+.monaco-editor {
+  padding: 1rem;
+  background-color: #1a1a1a !important;
+  height: 100% !important;
+}
+
+.monaco-editor .margin {
+  background-color: #1a1a1a !important;
+}
+
+.monaco-editor .line-numbers {
+  color: #666 !important;
+}
+
+.monaco-editor .current-line {
+  background-color: #2a2a2a !important;
+}
+
+.monaco-editor .cursor {
+  background-color: #fff !important;
+}
+
+.monaco-editor .selected-text {
+  background-color: #2a2a2a !important;
+}
+
+.monaco-editor .find-widget {
+  background-color: #1a1a1a !important;
+  border: 1px solid #333 !important;
+}
+
+.monaco-editor .suggest-widget {
+  background-color: #1a1a1a !important;
+  border: 1px solid #333 !important;
+}
+
+.monaco-editor .suggest-widget .monaco-list .monaco-list-row {
+  color: #fff !important;
+}
+
+.monaco-editor .suggest-widget .monaco-list .monaco-list-row.focused {
+  background-color: #2a2a2a !important;
+}
+
+/* Remove Ace Editor styles */
+.ace_editor {
+  display: none;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  height: 2.5rem;
+}
+
+.run-button, .submit-button, .nav-button-large {
+  height: 2.5rem;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+}
+
+.run-button {
+  background-color: rgb(40, 40, 40);
+  color: white;
+  border: none;
+}
+
+.run-button:hover {
+  background-color: rgb(50, 50, 50);
+}
+
+.run-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submit-button {
+  background-color: rgb(59, 130, 246);
+  color: white;
+  border: none;
+}
+
+.submit-button:hover {
+  background-color: rgb(37, 99, 235);
+}
+
+.nav-button-large {
+  background-color: transparent;
+  color: white;
+  border: 1px solid rgb(40, 40, 40);
+}
+
+.nav-button-large:hover {
+  background-color: rgb(40, 40, 40);
+}
+
+.nav-button-large:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Resizer styles */
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: rgb(40, 40, 40);
+  cursor: col-resize;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.resizer:hover {
+  background-color: rgb(59, 130, 246);
+}
+
+.resizer.dragging {
+  background-color: rgb(59, 130, 246);
+}
+
+/* Question Navigation */
+.question-nav {
+  position: fixed;
+  top: 3rem; /* Height of top navbar */
+  right: 0;
+  width: 3rem;
+  height: calc(100vh - 3rem);
+  background-color: rgb(45, 45, 45);
+  border-left: 1px solid rgb(64, 64, 64);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+  z-index: 10;
+  margin-bottom: 3.5rem; /* Add space for nav-footer */
+}
+
+.question-number {
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.5rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: transparent;
+  color: rgb(156, 163, 175);
+}
+
+.question-number:hover {
+  background-color: rgb(64, 64, 64);
+}
+
+.question-number.active {
+  background-color: rgb(59, 130, 246);
+  color: white;
+}
+ 

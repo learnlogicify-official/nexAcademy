@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  role          Role      @default(USER)
+  submissions   Submission[]
+  solvedProblems Problem[] @relation("SolvedProblems")
+}
+
+model Problem {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  difficulty  Difficulty
+  topics      String[]
+  constraints String
+  inputFormat String
+  outputFormat String
+  examples    Json
+  testCases   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  submissions Submission[]
+  solvedBy    User[]   @relation("SolvedProblems")
+}
+
+model Submission {
+  id        String   @id @default(cuid())
+  userId    String
+  problemId String
+  language  String
+  code      String
+  status    SubmissionStatus
+  runtime   Int?
+  memory    Int?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  problem   Problem  @relation(fields: [problemId], references: [id])
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SubmissionStatus {
+  PENDING
+  ACCEPTED
+  WRONG_ANSWER
+  RUNTIME_ERROR
+  COMPILATION_ERROR
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+} 
