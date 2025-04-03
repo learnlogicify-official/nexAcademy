@@ -1,51 +1,100 @@
-import React from "react";
-import Link from "next/link";
-import Navbar from "../components/Navbar";
+"use client";
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { BookOpen, CheckCircle2, Clock } from 'lucide-react';
+
+interface Problem {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+}
 
 export default function ProblemsPage() {
-  return (
-    <main>
-      <Navbar />
-      <div className="mx-auto max-w-7xl px-6 lg:px-8 py-24 sm:py-32">
-        <div className="mx-auto max-w-2xl text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-6xl">
-            Coding Problems
-          </h1>
-          <p className="mt-6 text-lg leading-8 text-gray-600">
-            Browse through our collection of coding problems. Filter by difficulty
-            and start solving!
-          </p>
-        </div>
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-        {/* Problems list */}
-        <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-x-8 gap-y-16 lg:mx-0 lg:mt-10 lg:max-w-none lg:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((problem) => (
-            <article
-              key={problem}
-              className="flex flex-col items-start justify-between"
-            >
-              <div className="relative w-full">
-                <div className="flex items-center gap-x-4 text-xs">
-                  <span className="relative z-10 rounded-full bg-gray-50 px-3 py-1.5 font-medium text-gray-600">
-                    Easy
+  useEffect(() => {
+    const fetchProblems = async () => {
+      try {
+        const response = await fetch('/api/problems');
+        if (!response.ok) {
+          throw new Error('Failed to fetch problems');
+        }
+        const data = await response.json();
+        setProblems(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProblems();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading problems...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <p className="text-red-500">Error: {error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <main className="container mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">Problems</h1>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center text-gray-500">
+            <BookOpen className="w-5 h-5 mr-2" />
+            <span>{problems.length} Problems</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6">
+        {problems.map((problem) => (
+          <Link
+            key={problem.id}
+            href={`/problems/${problem.id}`}
+            className="block p-6 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">{problem.title}</h2>
+                <p className="text-gray-600 line-clamp-2">{problem.description}</p>
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center text-gray-500">
+                  <Clock className="w-4 h-4 mr-1" />
+                  <span className="text-sm">
+                    {new Date(problem.createdAt).toLocaleDateString()}
                   </span>
                 </div>
-                <div className="group relative">
-                  <h3 className="mt-3 text-lg font-semibold leading-6 text-gray-900 group-hover:text-gray-600">
-                    <Link href={`/problems/${problem}`}>
-                      <span className="absolute inset-0" />
-                      Two Sum
-                    </Link>
-                  </h3>
-                  <p className="mt-5 line-clamp-3 text-sm leading-6 text-gray-600">
-                    Given an array of integers nums and an integer target, return
-                    indices of the two numbers such that they add up to target.
-                  </p>
+                <div className="flex items-center text-green-500">
+                  <CheckCircle2 className="w-4 h-4 mr-1" />
+                  <span className="text-sm">0%</span>
                 </div>
               </div>
-            </article>
-          ))}
-        </div>
+            </div>
+          </Link>
+        ))}
       </div>
     </main>
   );

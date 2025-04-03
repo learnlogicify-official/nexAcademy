@@ -1,3 +1,6 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,38 +11,137 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  password      String?
-  image         String?
-  emailVerified DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  role          Role      @default(USER)
-  submissions   Submission[]
-  solvedProblems Problem[] @relation("SolvedProblems")
+  id             String       @id @default(cuid())
+  name           String?
+  email          String?      @unique
+  emailVerified  DateTime?
+  image          String?
+  password       String?
+  role           Role         @default(USER)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  accounts       Account[]
+  sessions       Session[]
+  enrollments    Enrollment[]
+  courses        Course[]     @relation("CourseInstructor") // Courses created by the instructor
+  solvedProblems Problem[]    @relation("SolvedProblems")
+  submissions    Submission[]
+}
+
+model Course {
+  id           String       @id @default(cuid())
+  title        String
+  description  String       @db.Text
+  instructorId String
+  instructor   User         @relation("CourseInstructor", fields: [instructorId], references: [id])
+  image        String
+  price        Float
+  level        String
+  duration     String
+  lessons      Int
+  rating       Float        @default(0)
+  students     Int          @default(0)
+  category     String
+  tags         String[]
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  enrollments  Enrollment[]
+
+  @@index([instructorId])
+}
+
+model Enrollment {
+  id               String    @id @default(cuid())
+  userId           String
+  courseId         String
+  user             User      @relation(fields: [userId], references: [id])
+  course           Course    @relation(fields: [courseId], references: [id])
+  enrolledAt       DateTime  @default(now())
+  completedLessons Int[]
+  progress         Float     @default(0)
+  status           String    @default("in_progress")
+  lastAccessed     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+}
+
+// NextAuth.js Models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
 
 model Problem {
-  id          String   @id @default(cuid())
+  id          String   @id @default(uuid())
   title       String
   description String
-  difficulty  Difficulty
-  topics      String[]
-  constraints String
+  constraints String[]
   inputFormat String
   outputFormat String
-  examples    Json
-  testCases   Json
+  samples     Json
+  hiddenTests Json
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  submissions Submission[]
-  solvedBy    User[]   @relation("SolvedProblems")
 }
 
+// Sample JSON structure for samples and hiddenTests:
+// {
+//   "samples": [
+//     {
+//       "input": "5",
+//       "output": "1 2 3 4 5",
+//       "explanation": ["The input number N is 5.", "The program generates a sequence of numbers from 1 to 5."]
+//     }
+//   ],
+//   "hiddenTests": [
+//     {
+//       "input": "10",
+//       "output": "1 2 3 4 5 6 7 8 9 10"
+//     }
+//   ]
+// }
+
 model Submission {
-  id        String   @id @default(cuid())
+  id        String           @id @default(cuid())
   userId    String
   problemId String
   language  String
@@ -47,9 +149,9 @@ model Submission {
   status    SubmissionStatus
   runtime   Int?
   memory    Int?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
-  problem   Problem  @relation(fields: [problemId], references: [id])
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id])
+  problem   Problem          @relation(fields: [problemId], references: [id])
 }
 
 enum Role {
@@ -71,4 +173,4 @@ enum SubmissionStatus {
   COMPILATION_ERROR
   TIME_LIMIT_EXCEEDED
   MEMORY_LIMIT_EXCEEDED
-} 
+}

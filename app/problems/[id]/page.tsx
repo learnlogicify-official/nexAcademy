@@ -45,6 +45,67 @@ interface Judge0Response {
   expected_output?: string;
 }
 
+interface LanguageConfig {
+  id: number;
+  name: string;
+  extension: string;
+  monacoId: string;
+  defaultCode: string;
+}
+
+const LANGUAGES: LanguageConfig[] = [
+  {
+    id: 71,
+    name: 'Python',
+    extension: 'py',
+    monacoId: 'python',
+    defaultCode: '# Write your code here\n'
+  },
+  {
+    id: 54,
+    name: 'C++',
+    extension: 'cpp',
+    monacoId: 'cpp',
+    defaultCode: `#include <iostream>
+using namespace std;
+
+int main() {
+    // Write your code here
+    return 0;
+}`
+  },
+  {
+    id: 50,
+    name: 'C',
+    extension: 'c',
+    monacoId: 'c',
+    defaultCode: `#include <stdio.h>
+
+int main() {
+    // Write your code here
+    return 0;
+}`
+  },
+  {
+    id: 62,
+    name: 'Java',
+    extension: 'java',
+    monacoId: 'java',
+    defaultCode: `public class Solution {
+    public static void main(String[] args) {
+        // Write your code here
+    }
+}`
+  },
+  {
+    id: 63,
+    name: 'JavaScript',
+    extension: 'js',
+    monacoId: 'javascript',
+    defaultCode: '// Write your code here\n'
+  }
+];
+
 const problems: Problem[] = [
   {
     id: '1',
@@ -278,9 +339,15 @@ const problems: Problem[] = [
   }
 ];
 
-const problem = problems[0]; // For now, we'll use the first problem
-
-const CodeEditor = ({ code, setCode }: { code: string; setCode: React.Dispatch<React.SetStateAction<string>> }) => {
+const CodeEditor = ({ 
+  code, 
+  setCode,
+  language 
+}: { 
+  code: string; 
+  setCode: React.Dispatch<React.SetStateAction<string>>;
+  language: string;
+}) => {
   const handleEditorChange = (value: string | undefined) => {
     if (value) {
       setCode(value);
@@ -288,10 +355,11 @@ const CodeEditor = ({ code, setCode }: { code: string; setCode: React.Dispatch<R
   };
 
   return (
-    <div className="code-editor-wrapper">
+    <div className="h-full w-full">
       <Editor
         height="100%"
-        defaultLanguage="python"
+        defaultLanguage={language}
+        language={language}
         theme="vs-dark"
         value={code}
         onChange={handleEditorChange}
@@ -323,79 +391,130 @@ const CodeEditor = ({ code, setCode }: { code: string; setCode: React.Dispatch<R
   );
 };
 
-export default function ProblemPage() {
+export default function ProblemPage({ params }: { params: { id: string } }) {
   const [activeTab, setActiveTab] = useState<'description' | 'test'>('description');
   const [isRunning, setIsRunning] = useState(false);
-  const [currentProblemIndex, setCurrentProblemIndex] = useState(0);
-  const [code, setCode] = useState(problems[0].initialCode);
-  const [leftPanelWidth, setLeftPanelWidth] = useState(50); // Percentage
-  const resizerRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(0);
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageConfig>(LANGUAGES[0]);
+  const [code, setCode] = useState(LANGUAGES[0].defaultCode);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(45);
+  const [isDragging, setIsDragging] = useState(false);
   const [testResults, setTestResults] = useState<Judge0Response[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showHiddenTests, setShowHiddenTests] = useState(false);
 
+  // Initialize from localStorage on client side only
   useEffect(() => {
-    const resizer = resizerRef.current;
-    if (!resizer) return;
+    // Try to restore the last selected language from localStorage
+    const savedLanguage = localStorage.getItem(`problem_${params.id}_language`);
+    if (savedLanguage) {
+      const lang = LANGUAGES.find(l => l.id.toString() === savedLanguage);
+      if (lang) {
+        setSelectedLanguage(lang);
+      }
+    }
 
-    const startDragging = (e: MouseEvent) => {
-      isDraggingRef.current = true;
-      startXRef.current = e.clientX;
-      startWidthRef.current = leftPanelWidth;
-      resizer.classList.add('dragging');
+    // Try to restore saved code for this problem and language
+    const savedCode = localStorage.getItem(`problem_${params.id}_code_${selectedLanguage.id}`);
+    if (savedCode) {
+      setCode(savedCode);
+    }
+  }, [params.id]); // Run once on mount for each problem
+
+  // Save code to localStorage whenever it changes
+  useEffect(() => {
+    if (problem && typeof window !== 'undefined') {
+      localStorage.setItem(`problem_${params.id}_code_${selectedLanguage.id}`, code);
+    }
+  }, [code, params.id, selectedLanguage.id, problem]);
+
+  // Save selected language to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`problem_${params.id}_language`, selectedLanguage.id.toString());
+    }
+  }, [selectedLanguage, params.id]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+
+    const container = document.querySelector('.split-view');
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+
+    // Clamp the width between 30% and 70%
+    const clampedWidth = Math.min(Math.max(newWidth, 30), 70);
+    setLeftPanelWidth(clampedWidth);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
+
+  useEffect(() => {
+    const fetchProblem = async () => {
+      const foundProblem = problems.find(p => p.id === params.id);
+      if (foundProblem) {
+        setProblem(foundProblem);
+        // Load saved code or use default
+        const savedCode = localStorage.getItem(`problem_${params.id}_code_${selectedLanguage.id}`);
+        setCode(savedCode || foundProblem.initialCode || selectedLanguage.defaultCode);
+      }
     };
 
-    const stopDragging = () => {
-      isDraggingRef.current = false;
-      resizer.classList.remove('dragging');
-    };
+    fetchProblem();
+  }, [params.id, selectedLanguage.id]);
 
-    const doDrag = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
+  const handleLanguageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLanguage = LANGUAGES.find(lang => lang.id === Number(event.target.value));
+    if (newLanguage) {
+      setSelectedLanguage(newLanguage);
+      // Load saved code for the new language or use default
+      const savedCode = localStorage.getItem(`problem_${params.id}_code_${newLanguage.id}`);
+      setCode(savedCode || newLanguage.defaultCode);
+    }
+  };
 
-      const deltaX = e.clientX - startXRef.current;
-      const containerWidth = window.innerWidth;
-      const deltaPercent = (deltaX / containerWidth) * 100;
-      const newWidth = Math.max(20, Math.min(80, startWidthRef.current + deltaPercent));
-      
-      setLeftPanelWidth(newWidth);
-    };
-
-    resizer.addEventListener('mousedown', startDragging);
-    window.addEventListener('mousemove', doDrag);
-    window.addEventListener('mouseup', stopDragging);
-
-    return () => {
-      resizer.removeEventListener('mousedown', startDragging);
-      window.removeEventListener('mousemove', doDrag);
-      window.removeEventListener('mouseup', stopDragging);
-    };
-  }, [leftPanelWidth]);
+  // Add a function to reset code to default
+  const handleResetCode = () => {
+    const defaultCode = problem?.initialCode || selectedLanguage.defaultCode;
+    setCode(defaultCode);
+    localStorage.setItem(`problem_${params.id}_code_${selectedLanguage.id}`, defaultCode);
+  };
 
   const handleRunCode = async () => {
+    if (!problem) return;
+    
     setIsRunning(true);
     setTestResults([]);
     setActiveTab('test');
-    setShowHiddenTests(false);
 
     try {
-      const currentProblem = problems[currentProblemIndex];
-      if (!currentProblem || !currentProblem.samples) {
-        throw new Error('Invalid problem data');
-      }
-
-      console.log('Running code for problem:', currentProblem.id);
-      console.log('Sample test cases:', currentProblem.samples);
-      
-      // Run code for each sample test case
       const results = await Promise.all(
-        currentProblem.samples.map(async (sample, index) => {
+        problem.samples.map(async (sample, index) => {
           try {
-            console.log(`Running test case ${index + 1}:`, sample);
-            
             const response = await fetch('/api/run-code', {
               method: 'POST',
               headers: {
@@ -405,66 +524,88 @@ export default function ProblemPage() {
                 code: code,
                 input: sample.input,
                 expected_output: sample.output,
-                problemId: currentProblem.id
+                problemId: problem.id,
+                languageId: selectedLanguage.id
               })
             });
 
             if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+              throw new Error('Failed to run code');
             }
 
             const result = await response.json();
-            console.log(`Test case ${index + 1} result:`, result);
-            
-            return {
-              ...result,
-              expected_output: sample.output
-            };
+            return result;
           } catch (error) {
-            console.error(`Error running test case ${index + 1}:`, error);
+            console.error(`Error running sample ${index + 1}:`, error);
             return {
-              stdout: null,
+              status: { id: 6 },
+              stdout: '',
               stderr: error instanceof Error ? error.message : 'Unknown error occurred',
-              status: { id: 11, description: 'Runtime Error' },
-              time: '0',
+              time: '0.000',
               memory: 0,
-              expected_output: sample.output
+              compile_output: ''
             };
           }
         })
       );
 
-      console.log('All test results:', results);
       setTestResults(results);
     } catch (error) {
       console.error('Error running code:', error);
-      setTestResults([{
-        stdout: null,
-        stderr: error instanceof Error ? error.message : 'Error running code. Please try again.',
-        status: { id: 11, description: 'Runtime Error' },
-        time: '0',
-        memory: 0
-      }]);
     } finally {
       setIsRunning(false);
     }
   };
 
   const handleSubmit = async () => {
+    if (!problem) return;
+    
     setIsSubmitting(true);
     setTestResults([]);
     setActiveTab('test');
-    setShowHiddenTests(true);
 
     try {
-      const currentProblem = problems[currentProblemIndex];
-      
-      // Run both sample and hidden test cases
-      const allTests = [...currentProblem.samples, ...currentProblem.hiddenTests];
-      const results = await Promise.all(
-        allTests.map(async (test, index) => {
+      // Run sample tests first
+      const sampleResults = await Promise.all(
+        problem.samples.map(async (sample) => {
           try {
-            console.log('Running test case:', test);
+            const response = await fetch('/api/run-code', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                code: code,
+                input: sample.input,
+                expected_output: sample.output,
+                problemId: problem.id,
+                languageId: selectedLanguage.id
+              })
+            });
+
+            if (!response.ok) {
+              throw new Error('Failed to run code');
+            }
+
+            return await response.json();
+          } catch (error) {
+            console.error('Error running sample test:', error);
+            return {
+              status: { id: 6 },
+              stdout: '',
+              stderr: error instanceof Error ? error.message : 'Unknown error occurred',
+              time: '0.000',
+              memory: 0,
+              compile_output: ''
+            };
+          }
+        })
+      );
+
+      // Run hidden tests
+      const hiddenResults = await Promise.all(
+        problem.hiddenTests.map(async (test) => {
+          try {
             const response = await fetch('/api/run-code', {
               method: 'POST',
               headers: {
@@ -474,85 +615,75 @@ export default function ProblemPage() {
                 code: code,
                 input: test.input,
                 expected_output: test.output,
-                problemId: currentProblem.id
+                problemId: problem.id,
+                languageId: selectedLanguage.id
               })
             });
 
             if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+              throw new Error('Failed to run code');
             }
 
-            const result = await response.json();
-            console.log('Test case result:', result);
-            
-            // If there's a syntax error, return it immediately
-            if (result.status.id === 6) {
-              return result;
-            }
-            
-            return {
-              ...result,
-              expected_output: test.output,
-              isHidden: index >= currentProblem.samples.length
-            };
+            return await response.json();
           } catch (error) {
-            console.error('Error running test case:', error);
+            console.error('Error running hidden test:', error);
             return {
-              stdout: null,
+              status: { id: 6 },
+              stdout: '',
               stderr: error instanceof Error ? error.message : 'Unknown error occurred',
-              status: { id: 11, description: 'Runtime Error' },
-              time: '0',
+              time: '0.000',
               memory: 0,
-              expected_output: test.output,
-              isHidden: index >= currentProblem.samples.length
+              compile_output: ''
             };
           }
         })
       );
 
-      // If any result has a syntax error, only show that one
-      const syntaxError = results.find(result => result.status.id === 6);
-      if (syntaxError) {
-        setTestResults([syntaxError]);
-      } else {
-        // Show sample test cases in detail
-        const sampleResults = results.filter(result => !result.isHidden);
-        // Show hidden test cases in summary
-        const hiddenResults = results.filter(result => result.isHidden);
-        setTestResults([...sampleResults, ...hiddenResults]);
-      }
+      setTestResults([...sampleResults, ...hiddenResults]);
+      setShowHiddenTests(true);
     } catch (error) {
       console.error('Error submitting code:', error);
-      setTestResults([{
-        stdout: null,
-        stderr: 'Error submitting code. Please try again.',
-        status: { id: 11, description: 'Runtime Error' },
-        time: '0',
-        memory: 0
-      }]);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handlePrevProblem = () => {
-    if (currentProblemIndex > 0) {
-      setCurrentProblemIndex(currentProblemIndex - 1);
-      setCode(problems[currentProblemIndex - 1].initialCode);
-    }
-  };
+  // Add keyboard navigation
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Alt + Left Arrow for previous
+      if (e.altKey && e.key === 'ArrowLeft') {
+        const currentIndex = problems.findIndex(p => p.id === params.id);
+        if (currentIndex > 0) {
+          window.location.href = `/problems/${problems[currentIndex - 1].id}`;
+        }
+      }
+      // Alt + Right Arrow for next
+      if (e.altKey && e.key === 'ArrowRight') {
+        const currentIndex = problems.findIndex(p => p.id === params.id);
+        if (currentIndex < problems.length - 1) {
+          window.location.href = `/problems/${problems[currentIndex + 1].id}`;
+        }
+      }
+    };
 
-  const handleNextProblem = () => {
-    if (currentProblemIndex < problems.length - 1) {
-      setCurrentProblemIndex(currentProblemIndex + 1);
-      setCode(problems[currentProblemIndex + 1].initialCode);
-    }
-  };
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [params.id]);
 
-  const currentProblem = problems[currentProblemIndex];
+  if (!problem) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading problem...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <main className="main-layout">
+    <main className="main-layout relative">
       {/* Top Navigation */}
       <div className="top-nav">
         <button className="nav-button">
@@ -572,16 +703,54 @@ export default function ProblemPage() {
             <span className="text-sm">Level 1</span>
           </div>
         </div>
-        <div className="ml-auto flex items-center space-x-2">
-          <Clock className="w-4 h-4 text-green-400" />
-          <span className="text-sm text-green-400 font-medium">00:07:32</span>
+        <div className="ml-auto flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => {
+                const currentIndex = problems.findIndex(p => p.id === params.id);
+                if (currentIndex > 0) {
+                  window.location.href = `/problems/${problems[currentIndex - 1].id}`;
+                }
+              }}
+              disabled={params.id === '1'}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                params.id === '1' 
+                  ? 'opacity-50 cursor-not-allowed bg-gray-800 text-gray-400' 
+                  : 'bg-gray-800 hover:bg-gray-700 text-white'
+              }`}
+            >
+              <ChevronLeft className="w-5 h-5" />
+              <span className="text-sm font-medium">Previous</span>
+            </button>
+            <button 
+              onClick={() => {
+                const currentIndex = problems.findIndex(p => p.id === params.id);
+                if (currentIndex < problems.length - 1) {
+                  window.location.href = `/problems/${problems[currentIndex + 1].id}`;
+                }
+              }}
+              disabled={params.id === problems[problems.length - 1].id}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                params.id === problems[problems.length - 1].id 
+                  ? 'opacity-50 cursor-not-allowed bg-gray-800 text-gray-400' 
+                  : 'bg-gray-800 hover:bg-gray-700 text-white'
+              }`}
+            >
+              <span className="text-sm font-medium">Next</span>
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Clock className="w-4 h-4 text-green-400" />
+            <span className="text-sm text-green-400 font-medium">00:07:32</span>
+          </div>
         </div>
       </div>
 
-      <div className="split-view">
+      <div className="split-view relative h-[calc(100vh-3.5rem)] flex overflow-hidden">
         {/* Left Panel */}
         <div 
-          className="panel panel-left"
+          className="h-full overflow-auto"
           style={{ width: `${leftPanelWidth}%` }}
         >
           <div className="panel-header">
@@ -601,42 +770,39 @@ export default function ProblemPage() {
               <button className="nav-button">
                 <Maximize2 className="w-4 h-4" />
               </button>
-              <button className="nav-button">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
             </div>
           </div>
 
           <div className="panel-content">
             {activeTab === 'description' ? (
               <div className="space-y-6">
-                <h1 className="text-xl font-semibold">{currentProblem.title}</h1>
+                <h1 className="text-xl font-semibold">{problem.title}</h1>
                 
                 <div>
                   <h2 className="text-base font-medium mb-2">Problem Statement:</h2>
-                  <p className="text-gray-300">{currentProblem.description}</p>
+                  <p className="text-gray-300">{problem.description}</p>
                 </div>
 
                 <div>
                   <h2 className="text-base font-medium mb-2">Input Format:</h2>
-                  <p className="text-gray-300">{currentProblem.inputFormat}</p>
+                  <p className="text-gray-300">{problem.inputFormat}</p>
                 </div>
 
                 <div>
                   <h2 className="text-base font-medium mb-2">Output Format:</h2>
-                  <p className="text-gray-300">{currentProblem.outputFormat}</p>
+                  <p className="text-gray-300">{problem.outputFormat}</p>
                 </div>
 
                 <div>
                   <h2 className="text-base font-medium mb-2">Constraints:</h2>
                   <ul className="explanation-list">
-                    {currentProblem.constraints.map((constraint, index) => (
+                    {problem.constraints.map((constraint, index) => (
                       <li key={index}>{constraint}</li>
                     ))}
                   </ul>
                 </div>
 
-                {currentProblem.samples.map((sample, index) => (
+                {problem.samples.map((sample, index) => (
                   <div key={index}>
                     <h2 className="text-base font-medium mb-2">Sample {index + 1}:</h2>
                     <div className="flex-1">
@@ -672,7 +838,7 @@ export default function ProblemPage() {
                 <div className="space-y-4">
                   {/* Test Results */}
                   {testResults.map((result, index) => {
-                    const testCase = problems[currentProblemIndex].samples[index];
+                    const testCase = problem?.samples[index];
                     if (!testCase) return null;
                     
                     return (
@@ -722,7 +888,7 @@ export default function ProblemPage() {
                   })}
 
                   {/* Hidden Test Cases Summary */}
-                  {testResults.filter(result => result.isHidden && result.status.id !== 6).length > 0 && (
+                  {showHiddenTests && testResults.length > problem?.samples.length && (
                     <div className="mt-6">
                       <h3 className="text-base font-medium mb-3">Hidden Test Cases</h3>
                       <div className="overflow-x-auto">
@@ -742,7 +908,7 @@ export default function ProblemPage() {
                           </thead>
                           <tbody className="divide-y divide-gray-700">
                             {testResults
-                              .filter(result => result.isHidden && result.status.id !== 6)
+                              .slice(problem?.samples.length)
                               .map((result, index) => (
                                 <tr key={index}>
                                   <td className="px-4 py-2 text-sm text-gray-300">
@@ -776,85 +942,93 @@ export default function ProblemPage() {
         </div>
 
         {/* Resizer */}
-        <div 
-          ref={resizerRef}
-          className="resizer"
-          style={{ left: `${leftPanelWidth}%` }}
-        />
+        <div
+          className="w-1 hover:w-2 bg-gray-800 hover:bg-gray-700 cursor-col-resize transition-all relative z-10 flex items-center justify-center"
+          onMouseDown={handleMouseDown}
+        >
+          <div className="absolute w-4 h-full opacity-0"></div>
+          <div className="w-0.5 h-8 bg-gray-600 rounded-full"></div>
+        </div>
 
         {/* Right Panel */}
         <div 
-          className="panel panel-right"
-          style={{ width: `${100 - leftPanelWidth}%` }}
+          className="h-full flex flex-col"
+          style={{ 
+            width: `${100 - leftPanelWidth}%`,
+            marginRight: '64px'
+          }}
         >
-          <div className="panel-header">
-            <div className="flex items-center">
-              <span className="text-sm font-medium mr-2">Code</span>
-              <select className="code-input">
-                <option>Python</option>
-              </select>
+          <div className="panel-header flex-none">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-sm font-medium mr-2">Language</span>
+                <select 
+                  className="code-input"
+                  value={selectedLanguage.id}
+                  onChange={handleLanguageChange}
+                >
+                  {LANGUAGES.map(lang => (
+                    <option key={lang.id} value={lang.id}>
+                      {lang.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={handleResetCode}
+                className="px-2 py-1 text-sm text-gray-400 hover:text-white transition-colors"
+              >
+                Reset Code
+              </button>
             </div>
           </div>
 
-          <div className="editor-container">
-            <CodeEditor code={code} setCode={setCode} />
-            
-            {/* Question Navigation */}
-            <div className="question-nav">
-              {problems.map((_, index) => (
-                <div 
-                  key={index} 
-                  className={`question-number ${index === currentProblemIndex ? 'active' : ''}`}
-                  onClick={() => {
-                    setCurrentProblemIndex(index);
-                    setCode(problems[index].initialCode);
-                  }}
-                >
-                  {index + 1}
-                </div>
-              ))}
-            </div>
+          <div className="editor-container flex-1">
+            <CodeEditor 
+              code={code} 
+              setCode={setCode} 
+              language={selectedLanguage.monacoId}
+            />
           </div>
-          
-          {/* Navigation Footer */}
-          <div className="nav-footer">
-            <div className="flex items-center space-x-2">
-              <button 
-                className="nav-button-large"
-                onClick={handlePrevProblem}
-                disabled={currentProblemIndex === 0}
-              >
-                <ChevronLeft className="w-4 h-4 mr-2" />
-                Prev
-              </button>
-              <button 
-                className="nav-button-large"
-                onClick={handleNextProblem}
-                disabled={currentProblemIndex === problems.length - 1}
-              >
-                Next
-                <ChevronRight className="w-4 h-4 ml-2" />
-              </button>
-            </div>
-            <div className="action-buttons">
-              <button
-                onClick={handleRunCode}
-                disabled={isRunning}
-                className="run-button"
-              >
-                <Play className="w-4 h-4 mr-1" />
-                {isRunning ? 'Running...' : 'Run'}
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="submit-button"
-              >
-                {isSubmitting ? 'Submitting...' : 'Submit'}
-              </button>
-            </div>
+          <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-800 flex-none">
+            <button
+              onClick={handleRunCode}
+              disabled={isRunning}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors ${
+                isRunning ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              <Play className="w-4 h-4" />
+              {isRunning ? 'Running...' : 'Run'}
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-500 rounded-lg transition-colors ${
+                isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {isSubmitting ? 'Submitting...' : 'Submit'}
+            </button>
           </div>
         </div>
+      </div>
+
+      {/* Question Navigator */}
+      <div className="fixed right-0 top-0 h-full w-16 bg-gray-900 border-l border-gray-800 flex flex-col items-center py-4 mt-14">
+        {problems.map((p, index) => (
+          <button
+            key={p.id}
+            onClick={() => window.location.href = `/problems/${p.id}`}
+            className={`w-10 h-10 mb-2 rounded-lg flex items-center justify-center text-sm font-medium transition-colors ${
+              p.id === params.id 
+                ? 'bg-green-600 text-white' 
+                : 'text-gray-400 hover:bg-gray-800'
+            }`}
+          >
+            {index + 1}
+          </button>
+        ))}
       </div>
     </main>
   );
