@@ -14,7 +14,11 @@ import {
   LayoutIcon, 
   ClockIcon, 
   ActivityLogIcon, 
-  CalendarIcon 
+  CalendarIcon,
+  StarIcon,
+  CheckCircledIcon,
+  CircleIcon,
+  PersonIcon
 } from "@radix-ui/react-icons";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -49,51 +53,110 @@ export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [selectedTab, setSelectedTab] = useState<CourseTab>("all");
-  const [sortBy, setSortBy] = useState("last-accessed");
+  const [sortBy, setSortBy] = useState("lastAccessed");
   const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [allCourses, setAllCourses] = useState<Course[]>([]);
+
+  const fetchCourses = async (tab: CourseTab, sort: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const params = new URLSearchParams();
+      if (tab !== "all") params.append("status", tab);
+      if (sort) params.append("sortBy", sort);
+
+      const response = await fetch(`/api/courses/enrolled?${params.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch courses");
+      }
+
+      const data = await response.json();
+      setAllCourses(data);
+    } catch (error) {
+      console.error("Error fetching courses:", error);
+      setError(error instanceof Error ? error.message : "Failed to fetch courses");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Filter courses based on search term
+  const filteredCourses = allCourses.filter(course => {
+    if (!searchTerm) return true;
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      course.title.toLowerCase().includes(searchLower) ||
+      course.instructor.name?.toLowerCase().includes(searchLower) ||
+      course.category.toLowerCase().includes(searchLower)
+    );
+  });
 
   useEffect(() => {
-    // If not authenticated, redirect to login
     if (status === "unauthenticated") {
+      console.log('User is not authenticated, redirecting to login');
       router.push("/auth/login");
       return;
     }
 
-    // Only fetch courses if authenticated
-    if (status === "authenticated") {
-      const fetchCourses = async () => {
-        try {
-          const response = await fetch("/api/courses/enrolled");
-          if (!response.ok) throw new Error("Failed to fetch courses");
-          const data = await response.json();
-          setCourses(data);
-        } catch (error) {
-          console.error("Error fetching courses:", error);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      fetchCourses();
+    if (status === "authenticated" && session?.user?.id) {
+      console.log('User is authenticated with ID:', session.user.id);
+      fetchCourses(selectedTab, sortBy);
     }
-  }, [status, router]);
+  }, [status, session, router, selectedTab, sortBy]);
 
-  // Show loading state while checking authentication
-  if (status === "loading" || (status === "unauthenticated" && loading)) {
+  if (status === "loading" || loading) {
     return (
       <>
         <Navbar />
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="space-y-4">
-            <Skeleton className="h-12 w-12 rounded-full" />
-            <Skeleton className="h-4 w-[200px]" />
+        <div className="min-h-screen bg-gray-50">
+          <div className="container mx-auto px-4 py-8">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              {[...Array(4)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="pt-6">
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-8 w-16 mb-3" />
+                    <Skeleton className="h-2 w-full" />
+                    <Skeleton className="h-4 w-32 mt-2" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[...Array(6)].map((_, i) => (
+                <Card key={i}>
+                  <CardHeader className="p-4">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-10 w-10 rounded-full" />
+                      <div>
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-3 w-16 mt-1" />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <Skeleton className="h-5 w-3/4 mb-4" />
+                    <Skeleton className="h-2 w-full mb-2" />
+                    <Skeleton className="h-8 w-full mt-4" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         </div>
       </>
     );
   }
 
-  // Show login prompt if not authenticated
   if (status === "unauthenticated") {
     return (
       <>
@@ -113,302 +176,289 @@ export default function CoursesPage() {
     );
   }
 
-  const filteredCourses = courses.filter(course => {
-    if (selectedTab === "all") return true;
-    if (selectedTab === "in-progress") return course.progress > 0 && course.progress < 100;
-    if (selectedTab === "future") return course.progress === 0;
-    if (selectedTab === "past") return course.progress === 100;
-    if (selectedTab === "starred") return course.isStarred ?? false;
-    if (selectedTab === "removed") return course.isRemoved ?? false;
-    return true;
-  }).filter(course => 
-    course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    course.instructor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    course.category.toLowerCase().includes(searchTerm.toLowerCase())
-  ).sort((a, b) => {
-    if (sortBy === "title") return a.title.localeCompare(b.title);
-    if (sortBy === "progress") return b.progress - a.progress;
-    if (sortBy === "deadline") {
-      const aDate = a.deadline ? new Date(a.deadline).getTime() : 0;
-      const bDate = b.deadline ? new Date(b.deadline).getTime() : 0;
-      return aDate - bDate;
-    }
-    // default: last-accessed
-    const aDate = a.lastAccessed ? new Date(a.lastAccessed).getTime() : 0;
-    const bDate = b.lastAccessed ? new Date(b.lastAccessed).getTime() : 0;
-    return bDate - aDate;
-  });
+  if (error) {
+    return (
+      <>
+        <Navbar />
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+          <h1 className="text-2xl font-bold text-red-600">Error</h1>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <Button 
+            onClick={() => fetchCourses(selectedTab, sortBy)}
+            variant="default"
+            size="lg"
+          >
+            Try Again
+          </Button>
+        </div>
+      </>
+    );
+  }
+
+  const stats = {
+    inProgress: filteredCourses.filter(c => c.progress > 0 && c.progress < 100).length,
+    completed: filteredCourses.filter(c => c.progress === 100).length,
+    notStarted: filteredCourses.filter(c => c.progress === 0).length,
+    totalHours: filteredCourses.reduce((acc, curr) => acc + parseInt(curr.duration), 0),
+    totalCourses: filteredCourses.length,
+    starred: filteredCourses.filter(c => c.isStarred).length,
+    averageProgress: filteredCourses.reduce((acc, curr) => acc + curr.progress, 0) / filteredCourses.length || 0,
+    totalStudents: filteredCourses.reduce((acc, curr) => acc + curr.students, 0),
+  };
 
   return (
     <>
       <Navbar />
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-purple-50 to-pink-50 pt-24">
         <div className="container mx-auto px-4 py-8">
-          {/* Stats Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between space-y-0 pb-2">
-                  <p className="text-sm font-medium">In Progress</p>
-                  <Badge variant="secondary">{courses.filter(c => c.progress > 0 && c.progress < 100).length}</Badge>
-                </div>
-                <div className="text-2xl font-bold">
-                  {((courses.filter(c => c.progress > 0 && c.progress < 100).length / courses.length) * 100).toFixed(0)}%
-                </div>
-                <Progress 
-                  value={(courses.filter(c => c.progress > 0 && c.progress < 100).length / courses.length) * 100}
-                  className="mt-3"
-                />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between space-y-0 pb-2">
-                  <p className="text-sm font-medium">Completed</p>
-                  <Badge variant="secondary">{courses.filter(c => c.progress === 100).length}</Badge>
-                </div>
-                <div className="text-2xl font-bold">
-                  {((courses.filter(c => c.progress === 100).length / courses.length) * 100).toFixed(0)}%
-                </div>
-                <Progress 
-                  value={(courses.filter(c => c.progress === 100).length / courses.length) * 100}
-                  className="mt-3"
-                />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between space-y-0 pb-2">
-                  <p className="text-sm font-medium">Not Started</p>
-                  <Badge variant="secondary">{courses.filter(c => c.progress === 0).length}</Badge>
-                </div>
-                <div className="text-2xl font-bold">
-                  {((courses.filter(c => c.progress === 0).length / courses.length) * 100).toFixed(0)}%
-                </div>
-                <Progress 
-                  value={(courses.filter(c => c.progress === 0).length / courses.length) * 100}
-                  className="mt-3"
-                />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between space-y-0 pb-2">
-                  <p className="text-sm font-medium">Total Hours</p>
-                  <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="text-2xl font-bold">
-                  {courses.reduce((acc, curr) => acc + parseInt(curr.duration), 0)}h
-                </div>
-                <p className="text-xs text-muted-foreground mt-3">
-                  Across {courses.length} courses
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">My Learning Journey</h1>
-          </div>
-
-          {/* Course Overview Section */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Course overview</h2>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CalendarIcon className="h-4 w-4" />
-                <span>Last updated: {new Date().toLocaleDateString()}</span>
-              </div>
-            </div>
-            
-            {/* Tabs */}
-            <Tabs value={selectedTab} onValueChange={(value) => setSelectedTab(value as CourseTab)} className="mb-6">
-              <TabsList className="grid grid-cols-3 lg:grid-cols-6 gap-4">
-                {tabs.map((tab) => {
-                  const count = (() => {
-                    switch (tab.id) {
-                      case "in-progress":
-                        return courses.filter(c => c.progress > 0 && c.progress < 100).length;
-                      case "future":
-                        return courses.filter(c => c.progress === 0).length;
-                      case "past":
-                        return courses.filter(c => c.progress === 100).length;
-                      case "starred":
-                        return courses.filter(c => c.isStarred ?? false).length;
-                      case "removed":
-                        return courses.filter(c => c.isRemoved ?? false).length;
-                      default:
-                        return courses.length;
-                    }
-                  })();
-
-                  return (
-                    <TabsTrigger 
-                      key={tab.id} 
-                      value={tab.id}
-                      className="relative"
-                    >
-                      {tab.label}
-                      {count > 0 && (
-                        <Badge 
-                          variant="secondary" 
-                          className="ml-2 absolute -top-1 -right-1"
-                        >
-                          {count}
-                        </Badge>
-                      )}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
-            </Tabs>
-
-            {/* Controls */}
-            <div className="flex flex-wrap gap-4 mb-6">
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-2xl font-bold text-indigo-900">My Learning Journey</h1>
+            <div className="flex items-center gap-4">
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[180px] bg-white/80 backdrop-blur-sm border-indigo-200">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="last-accessed">Sort by last accessed</SelectItem>
-                  <SelectItem value="title">Sort by title</SelectItem>
-                  <SelectItem value="progress">Sort by progress</SelectItem>
-                  <SelectItem value="deadline">Sort by deadline</SelectItem>
+                  <SelectItem value="lastAccessed">Last Accessed</SelectItem>
+                  <SelectItem value="title">Title</SelectItem>
+                  <SelectItem value="progress">Progress</SelectItem>
+                  <SelectItem value="deadline">Deadline</SelectItem>
                 </SelectContent>
               </Select>
-
-              <div className="relative flex-1 max-w-sm">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Search courses..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-
               <div className="flex items-center gap-2">
                 <Button
-                  variant="ghost"
+                  variant={viewMode === "grid" ? "default" : "ghost"}
                   size="icon"
                   onClick={() => setViewMode("grid")}
-                  className={cn(
-                    viewMode === "grid" && "bg-secondary text-secondary-foreground"
-                  )}
+                  className={viewMode === "grid" ? "bg-indigo-600 hover:bg-indigo-700" : "hover:bg-indigo-100"}
                 >
                   <GridIcon className="h-4 w-4" />
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant={viewMode === "list" ? "default" : "ghost"}
                   size="icon"
                   onClick={() => setViewMode("list")}
-                  className={cn(
-                    viewMode === "list" && "bg-secondary text-secondary-foreground"
-                  )}
+                  className={viewMode === "list" ? "bg-indigo-600 hover:bg-indigo-700" : "hover:bg-indigo-100"}
                 >
                   <ListBulletIcon className="h-4 w-4" />
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant={viewMode === "card" ? "default" : "ghost"}
                   size="icon"
                   onClick={() => setViewMode("card")}
-                  className={cn(
-                    viewMode === "card" && "bg-secondary text-secondary-foreground"
-                  )}
+                  className={viewMode === "card" ? "bg-indigo-600 hover:bg-indigo-700" : "hover:bg-indigo-100"}
                 >
                   <LayoutIcon className="h-4 w-4" />
                 </Button>
               </div>
             </div>
+          </div>
 
-            {/* Course Grid */}
-            <div className={cn(
-              "grid gap-6",
-              viewMode === "grid" && "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
-              viewMode === "list" && "grid-cols-1",
-              viewMode === "card" && "grid-cols-1 md:grid-cols-2 gap-4"
-            )}>
-              {filteredCourses.map((course) => (
-                <Card
-                  key={course.id}
-                  className={cn(
-                    "group overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer",
-                    viewMode === "list" ? "flex" : "flex flex-col h-[400px]"
-                  )}
-                  onClick={() => router.push(`/courses/${course.id}`)}
-                >
-                  <div className={cn(
-                    "relative",
-                    viewMode === "list" ? "w-48 h-full" : "h-40 w-full"
-                  )}>
-                    <img
-                      src={course.image}
-                      alt={course.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <Badge
-                      variant="secondary"
-                      className="absolute top-2 right-2"
-                    >
-                      {course.category}
-                    </Badge>
-                    {course.progress > 0 && (
-                      <Progress 
-                        value={course.progress}
-                        className="absolute bottom-0 left-0 right-0"
-                      />
+          {/* Status Tabs */}
+          <div className="flex space-x-4 mb-6">
+            <Button
+              variant={selectedTab === "all" ? "default" : "outline"}
+              onClick={() => setSelectedTab("all")}
+              className={`text-sm font-medium ${
+                selectedTab === "all" 
+                  ? "bg-indigo-600 hover:bg-indigo-700" 
+                  : "border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+              }`}
+            >
+              All Courses
+            </Button>
+            <Button
+              variant={selectedTab === "in-progress" ? "default" : "outline"}
+              onClick={() => setSelectedTab("in-progress")}
+              className={`text-sm font-medium ${
+                selectedTab === "in-progress" 
+                  ? "bg-purple-600 hover:bg-purple-700" 
+                  : "border-purple-200 text-purple-600 hover:bg-purple-50"
+              }`}
+            >
+              In Progress
+            </Button>
+            <Button
+              variant={selectedTab === "future" ? "default" : "outline"}
+              onClick={() => setSelectedTab("future")}
+              className={`text-sm font-medium ${
+                selectedTab === "future" 
+                  ? "bg-pink-600 hover:bg-pink-700" 
+                  : "border-pink-200 text-pink-600 hover:bg-pink-50"
+              }`}
+            >
+              Future
+            </Button>
+            <Button
+              variant={selectedTab === "past" ? "default" : "outline"}
+              onClick={() => setSelectedTab("past")}
+              className={`text-sm font-medium ${
+                selectedTab === "past" 
+                  ? "bg-emerald-600 hover:bg-emerald-700" 
+                  : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+              }`}
+            >
+              Past
+            </Button>
+            <Button
+              variant={selectedTab === "starred" ? "default" : "outline"}
+              onClick={() => setSelectedTab("starred")}
+              className={`text-sm font-medium ${
+                selectedTab === "starred" 
+                  ? "bg-amber-600 hover:bg-amber-700" 
+                  : "border-amber-200 text-amber-600 hover:bg-amber-50"
+              }`}
+            >
+              Starred
+            </Button>
+            <Button
+              variant={selectedTab === "removed" ? "default" : "outline"}
+              onClick={() => setSelectedTab("removed")}
+              className={`text-sm font-medium ${
+                selectedTab === "removed" 
+                  ? "bg-red-600 hover:bg-red-700" 
+                  : "border-red-200 text-red-600 hover:bg-red-50"
+              }`}
+            >
+              Removed
+            </Button>
+          </div>
+
+          {/* Stats Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between space-y-0 pb-2">
+                  <p className="text-sm font-medium text-indigo-600">In Progress</p>
+                  <CircleIcon className="h-4 w-4 text-indigo-400" />
+                </div>
+                <div className="text-2xl font-bold text-indigo-900">{stats.inProgress}</div>
+                <Progress 
+                  value={(stats.inProgress / stats.totalCourses) * 100}
+                  className="mt-3 bg-indigo-100"
+                />
+                <p className="text-xs text-indigo-500 mt-2">
+                  {((stats.inProgress / stats.totalCourses) * 100 || 0).toFixed(0)}% of courses
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between space-y-0 pb-2">
+                  <p className="text-sm font-medium text-purple-600">Completed</p>
+                  <CheckCircledIcon className="h-4 w-4 text-purple-400" />
+                </div>
+                <div className="text-2xl font-bold text-purple-900">{stats.completed}</div>
+                <Progress 
+                  value={(stats.completed / stats.totalCourses) * 100}
+                  className="mt-3 bg-purple-100"
+                />
+                <p className="text-xs text-purple-500 mt-2">
+                  {((stats.completed / stats.totalCourses) * 100 || 0).toFixed(0)}% of courses
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-pink-50 to-rose-50 border-pink-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between space-y-0 pb-2">
+                  <p className="text-sm font-medium text-pink-600">Total Hours</p>
+                  <ClockIcon className="h-4 w-4 text-pink-400" />
+                </div>
+                <div className="text-2xl font-bold text-pink-900">{stats.totalHours}h</div>
+                <p className="text-xs text-pink-500 mt-2">
+                  Across {stats.totalCourses} courses
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-rose-50 to-orange-50 border-rose-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between space-y-0 pb-2">
+                  <p className="text-sm font-medium text-rose-600">Total Students</p>
+                  <PersonIcon className="h-4 w-4 text-rose-400" />
+                </div>
+                <div className="text-2xl font-bold text-rose-900">{stats.totalStudents}</div>
+                <p className="text-xs text-rose-500 mt-2">
+                  Average {Math.round(stats.totalStudents / stats.totalCourses) || 0} per course
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Search and Filter */}
+          <div className="flex items-center gap-4 mb-6">
+            <div className="relative flex-1">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-indigo-400" />
+              <Input
+                placeholder="Search courses..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 bg-white/80 backdrop-blur-sm border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
+              />
+            </div>
+          </div>
+
+          {/* Course Grid */}
+          <div className={cn(
+            "grid gap-6",
+            viewMode === "grid" && "grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
+            viewMode === "list" && "grid-cols-1",
+            viewMode === "card" && "grid-cols-1 md:grid-cols-2"
+          )}>
+            {filteredCourses.map((course) => (
+              <Card key={course.id} className="hover:shadow-lg transition-all duration-300 bg-white/80 backdrop-blur-sm border-indigo-200">
+                <CardHeader className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="border-2 border-indigo-200">
+                        <AvatarImage src={course.instructor.image || ''} />
+                        <AvatarFallback className="bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-600">
+                          {course.instructor.name?.[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="text-sm font-medium text-indigo-900">{course.instructor.name}</p>
+                        <p className="text-xs text-indigo-500">{course.category}</p>
+                      </div>
+                    </div>
+                    {course.isStarred && (
+                      <StarIcon className="h-4 w-4 text-amber-500" />
                     )}
                   </div>
-                  <CardContent className={cn(
-                    "flex flex-col flex-1 p-4",
-                    viewMode === "list" ? "w-full" : ""
-                  )}>
-                    <div className="h-12 mb-2">
-                      <h3 className="text-lg font-semibold line-clamp-2 group-hover:text-primary">
-                        {course.title}
-                      </h3>
+                </CardHeader>
+                <CardContent className="p-4">
+                  <h3 className="font-semibold mb-2 text-indigo-900">{course.title}</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-indigo-500">Progress</span>
+                      <span className="font-medium text-indigo-900">{course.progress}%</span>
                     </div>
-
-                    <div className="h-10 mb-3">
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {course.description}
-                      </p>
+                    <Progress value={course.progress} className="h-2 bg-indigo-100" />
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-indigo-500">Duration</span>
+                      <span className="font-medium text-indigo-900">{course.duration}h</span>
                     </div>
-
-                    <div className="h-8 flex items-center gap-2 mb-4">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={course.instructor.image} alt={course.instructor.name} />
-                        <AvatarFallback>{course.instructor.name[0]}</AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm text-muted-foreground line-clamp-1">
-                        {course.instructor.name}
-                      </span>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-indigo-500">Students</span>
+                      <span className="font-medium text-indigo-900">{course.students}</span>
                     </div>
-
-                    <div className="mt-auto space-y-3">
-                      <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <ClockIcon className="h-4 w-4" />
-                          <span>{course.duration}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <ActivityLogIcon className="h-4 w-4" />
-                          <span>{course.level}</span>
-                        </div>
+                    {course.deadline && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-indigo-500">Deadline</span>
+                        <span className="font-medium text-indigo-900">
+                          {new Date(course.deadline).toLocaleDateString()}
+                        </span>
                       </div>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>{course.completedLessons?.length || 0} of {course.lessons} completed</span>
-                          <span>{course.progress}%</span>
-                        </div>
-                        <Progress value={course.progress} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    )}
+                  </div>
+                  <Button
+                    className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700"
+                    onClick={() => router.push(`/courses/${course.id}`)}
+                  >
+                    Continue Learning
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </div>

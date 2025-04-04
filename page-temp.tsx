@@ -1,0 +1,856 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  ArrowLeft,
+  Play,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  BookOpen,
+  Code2,
+  CheckCircle2,
+  Cog,
+  XCircle,
+  Terminal,
+  Copy,
+  CheckSquare,
+  Cpu,
+  AlertCircle,
+  RotateCcw
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import CodeEditor from '@/app/components/CodeEditor';
+
+interface TestCase {
+  input: string;
+  output: string;
+  explanation?: string;
+}
+
+interface Problem {
+  id: string;
+  title: string;
+  description: string;
+  inputFormat: string;
+  outputFormat: string;
+  constraints: string[];
+  samples: TestCase[];
+  hiddenTests?: TestCase[];
+  initialCode: string;
+}
+
+interface Judge0Response {
+  stdout: string | null;
+  stderr: string | null;
+  status: {
+    id: number;
+    description: string;
+  };
+  time: string;
+  memory: number;
+  isHidden?: boolean;
+  expected_output?: string;
+}
+
+interface LanguageConfig {
+  id: number;
+  name: string;
+  extension: string;
+  monacoId: string;
+  defaultCode: string;
+}
+
+const LANGUAGES: LanguageConfig[] = [
+  {
+    id: 71,
+    name: 'Python',
+    extension: '.py',
+    monacoId: 'python',
+    defaultCode: `def solve():
+    # Read input
+    N = int(input())
+    arr = list(map(int, input().split()))
+    
+    # Calculate sum
+    total = sum(arr)
+    
+    # Print result
+    print(total)
+
+# Call the solve function
+solve()`
+  },
+  {
+    id: 63,
+    name: 'JavaScript',
+    extension: '.js',
+    monacoId: 'javascript',
+    defaultCode: `function solve() {
+    // Read input
+    const N = parseInt(readline());
+    const arr = readline().split(' ').map(Number);
+    
+    // Calculate sum
+    const total = arr.reduce((sum, num) => sum + num, 0);
+    
+    // Print result
+    console.log(total);
+}
+
+// Call the solve function
+solve();`
+  },
+  {
+    id: 54,
+    name: 'C++',
+    extension: '.cpp',
+    monacoId: 'cpp',
+    defaultCode: `#include <iostream>
+#include <vector>
+using namespace std;
+
+void solve() {
+    // Read input
+    int N;
+    cin >> N;
+    vector<int> arr(N);
+    for(int i = 0; i < N; i++) {
+        cin >> arr[i];
+    }
+    
+    // Calculate sum
+    int total = 0;
+    for(int num : arr) {
+        total += num;
+    }
+    
+    // Print result
+    cout << total << endl;
+}
+
+int main() {
+    solve();
+    return 0;
+}`
+  },
+  {
+    id: 62,
+    name: 'Java',
+    extension: '.java',
+    monacoId: 'java',
+    defaultCode: `import java.util.Scanner;
+
+public class Main {
+    public static void solve() {
+        Scanner scanner = new Scanner(System.in);
+        
+        // Read input
+        int N = scanner.nextInt();
+        int total = 0;
+        for(int i = 0; i < N; i++) {
+            total += scanner.nextInt();
+        }
+        
+        // Print result
+        System.out.println(total);
+        
+        scanner.close();
+    }
+    
+    public static void main(String[] args) {
+        solve();
+    }
+}`
+  }
+];
+
+interface TestQuestion {
+  id: string;
+  question: string;
+  type: 'MCQ' | 'PROGRAMMING';
+  options?: string[];
+  correctAnswer?: number;
+  initialCode?: string;
+  testCases?: TestCase[];
+  hiddenTestCases?: TestCase[];
+  explanation: string | null;
+  problemId?: string;
+}
+
+interface Test {
+  id: string;
+  title: string;
+  description: string | null;
+  duration: number;
+  passingScore: number;
+  questions: TestQuestion[];
+  problems: {
+    id: string;
+    title: string;
+    description: string;
+    inputFormat: string;
+    outputFormat: string;
+    constraints: string[];
+    samples: TestCase | TestCase[];
+    hiddenTestCases?: TestCase[];
+    initialCode: string;
+  }[];
+}
+
+interface TestAnswers {
+  [key: string]: string | number;
+}
+
+interface CodeEditorProps {
+  code: string;
+  onChange: (value: string | undefined) => void;
+  language: string;
+}
+
+type ContentType = 'questions' | 'problems';
+
+function getLanguageId(monacoId: string): number {
+  const languageMap: Record<string, number> = {
+    'python': 71,
+    'javascript': 63,
+    'java': 62,
+    'cpp': 54
+  };
+  return languageMap[monacoId] || 71; // Default to Python if not found
+}
+
+export default function TestAttemptPage({
+  params,
+}: {
+  params: { courseId: string; testId: string };
+}) {
+  const router = useRouter();
+  const [test, setTest] = useState<Test | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [currentSection, setCurrentSection] = useState<'mcq' | 'programming'>('mcq');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [answers, setAnswers] = useState<TestAnswers>({});
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [endTime, setEndTime] = useState<Date | null>(null);
+  const [code, setCode] = useState<string>('');
+  const [currentTab, setCurrentTab] = useState<string>('description');
+  const [leftPanelWidth, setLeftPanelWidth] = useState(45);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [testResults, setTestResults] = useState<any[]>([]);
+  const [contentType, setContentType] = useState<ContentType>('questions');
+  const [selectedLanguage, setSelectedLanguage] = useState('python');
+  const [fontSize, setFontSize] = useState(14);
+  const [tabSize, setTabSize] = useState(4);
+  const [theme, setTheme] = useState('vs-dark');
+  const [showHiddenResults, setShowHiddenResults] = useState(false);
+
+  useEffect(() => {
+    const fetchTest = async () => {
+      try {
+        const response = await fetch(`/api/courses/${params.courseId}/tests/${params.testId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch test');
+        }
+        const data = await response.json();
+        setTest(data);
+        
+        // Determine initial section based on available questions
+        if (data.questions && data.questions.length > 0) {
+          setCurrentSection('mcq');
+        } else if (data.problems && data.problems.length > 0) {
+          setCurrentSection('programming');
+        }
+        
+        // Initialize time
+        const startTime = new Date();
+        setStartTime(startTime);
+        setEndTime(new Date(startTime.getTime() + data.duration * 60 * 1000));
+      } catch (err) {
+        console.error('Error fetching test:', err);
+        setError('Failed to fetch test data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTest();
+  }, [params.courseId, params.testId]);
+
+  useEffect(() => {
+    if (!startTime) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 0) {
+          clearInterval(timer);
+          handleSubmit();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [startTime]);
+
+  useEffect(() => {
+    if (test && test.questions && Array.isArray(test.questions) && currentQuestionIndex < test.questions.length && test.questions[currentQuestionIndex]?.type === 'PROGRAMMING') {
+      setCode(test.questions[currentQuestionIndex].initialCode || '');
+    }
+  }, [currentQuestionIndex, test]);
+
+  useEffect(() => {
+    if (test && test.problems && test.problems[currentIndex]) {
+      // Set initial code based on selected language
+      const lang = LANGUAGES.find(l => l.monacoId === selectedLanguage);
+      if (lang) {
+        setCode(lang.defaultCode);
+      }
+    }
+  }, [selectedLanguage, currentIndex, test]);
+
+  // Handle MCQ answer selection
+  const handleMcqAnswerSelect = (questionId: string, answerIndex: number) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [questionId]: answerIndex,
+    }));
+  };
+
+  // Navigation between sections and questions
+  const handlePrevious = () => {
+    if (currentSection === 'mcq') {
+      if (currentIndex > 0) {
+        // Previous MCQ question
+        setCurrentIndex(currentIndex - 1);
+      } else if (test?.problems && test.problems.length > 0) {
+        // Go back to programming section (last problem)
+        setCurrentSection('programming');
+        setCurrentIndex(test.problems.length - 1);
+      }
+    } else if (currentSection === 'programming') {
+      if (currentIndex > 0) {
+        // Previous programming problem
+        setCurrentIndex(currentIndex - 1);
+      } else if (test?.questions && test.questions.length > 0) {
+        // Go back to MCQ section (last question)
+        setCurrentSection('mcq');
+        setCurrentIndex(test.questions.length - 1);
+      }
+    }
+  };
+
+  const handleNext = () => {
+    if (currentSection === 'mcq' && test?.questions) {
+      if (currentIndex < test.questions.length - 1) {
+        // Next MCQ question
+        setCurrentIndex(currentIndex + 1);
+      } else if (test?.problems && test.problems.length > 0) {
+        // Move to programming section
+        setCurrentSection('programming');
+        setCurrentIndex(0);
+      }
+    } else if (currentSection === 'programming' && test?.problems) {
+      if (currentIndex < test.problems.length - 1) {
+        // Next programming problem
+        setCurrentIndex(currentIndex + 1);
+      } else if (test?.questions && test.questions.length > 0) {
+        // Move to MCQ section
+        setCurrentSection('mcq');
+        setCurrentIndex(0);
+      }
+    }
+  };
+
+  // Calculate total progress across all sections
+  const calculateProgress = () => {
+    if (!test) return 0;
+    
+    const totalItems = (test.questions?.length || 0) + (test.problems?.length || 0);
+    if (totalItems === 0) return 0;
+    
+    const currentPosition = 
+      currentSection === 'mcq' 
+        ? currentIndex + 1
+        : (test.questions?.length || 0) + currentIndex + 1;
+    
+    return (currentPosition / totalItems) * 100;
+  };
+
+  const handleCodeChange = (value: string | undefined) => {
+    if (!value) return;
+    setAnswers(prev => ({
+      ...prev,
+      [`question_${currentQuestionIndex}`]: value
+    }));
+    setCode(value);
+  };
+
+  const handleSubmit = async () => {
+    if (!test) return;
+
+    try {
+      const score = test.questions.reduce((acc: number, question, index) => {
+        const answer = answers[`question_${index}`];
+        if (question.type === 'MCQ') {
+          return acc + (answer === question.correctAnswer ? 1 : 0);
+        }
+        // For programming questions, we'll need to implement test case validation
+        // For now, give partial credit if they submitted any code
+        return acc + (typeof answer === 'string' && answer.trim() ? 0.5 : 0);
+      }, 0) * (100 / test.questions.length);
+
+      const response = await fetch(`/api/courses/${params.courseId}/tests/${params.testId}/attempt`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          answers: Object.entries(answers).map(([key, value]) => ({
+            questionId: key.replace('question_', ''),
+            answer: value
+          })),
+          score,
+          status: 'COMPLETED',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit test');
+      }
+
+      const data = await response.json();
+      console.log('Test submission successful:', data);
+
+      router.push(`/courses/${params.courseId}/tests/${params.testId}`);
+    } catch (err) {
+      console.error('Error submitting test:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit test');
+      // Show error to user
+      alert(err instanceof Error ? err.message : 'Failed to submit test. Please try again.');
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+
+    const container = document.querySelector('.split-view');
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+
+    // Clamp the width between 30% and 70%
+    const clampedWidth = Math.min(Math.max(newWidth, 30), 70);
+    setLeftPanelWidth(clampedWidth);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
+
+  const handleRunCode = async () => {
+    if (!test || !test.problems[currentIndex]) return;
+    
+    setIsRunning(true);
+    setTestResults([]);
+    setCurrentTab('test');
+
+    try {
+      const problem = test.problems[currentIndex];
+      const sampleTestCases = Array.isArray(problem.samples) 
+        ? problem.samples 
+        : [problem.samples];
+      
+      const results = await Promise.all(
+        sampleTestCases.map(async (testCase) => {
+          const response = await fetch('/api/run-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code,
+              input: testCase.input,
+              expected_output: testCase.output,
+              languageId: getLanguageId(selectedLanguage)
+            })
+          });
+          return response.json();
+        })
+      );
+      
+      setTestResults(results);
+    } catch (error) {
+      console.error('Error running code:', error);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
+  if (error) {
+    return <div>Error: {error}</div>;
+  }
+
+  if (!test) {
+    return <div>No test data available</div>;
+  }
+
+  if (!test?.questions?.length && !test?.problems?.length) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-red-500">No questions or problems found in this test.</p>
+      </div>
+    );
+  }
+
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+
+  return (
+    <div className="flex flex-col min-h-screen bg-gray-950">
+      {/* Header with back button and timer */}
+      <header className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <BookOpen className="w-4 h-4 text-gray-400" />
+            <span className="text-sm font-medium">Problem Solving</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Code2 className="w-4 h-4 text-gray-400" />
+            <span className="text-sm">Programming</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-gray-400" />
+            <span className="text-sm">Level 1</span>
+          </div>
+        </div>
+        <div className="ml-auto flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Clock className="w-4 h-4 text-green-400" />
+            <span className="text-sm text-green-400 font-medium">{minutes}:{seconds.toString().padStart(2, '0')}</span>
+          </div>
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <Cog className="w-6 h-6 text-gray-400 animate-spin" />
+          <span className="ml-2 text-gray-400">Loading test...</span>
+        </div>
+      ) : error ? (
+        <div className="flex-1 flex items-center justify-center">
+          <AlertCircle className="w-6 h-6 text-red-400" />
+          <span className="ml-2 text-red-400">{error}</span>
+        </div>
+      ) : !test ? (
+        <div className="flex-1 flex items-center justify-center">
+          <span>Test not found</span>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col">
+          {/* Progress bar */}
+          <div className="p-4 border-b border-gray-800">
+            <div className="flex justify-between items-center text-sm text-gray-400 mb-2">
+              <span>
+                {currentSection === 'mcq' ? 'Question' : 'Problem'} {currentIndex + 1} of {
+                  currentSection === 'mcq' ? test.questions?.length || 0 : test.problems?.length || 0
+                }
+              </span>
+              <div className="flex items-center">
+                <Clock className="w-4 h-4 mr-1" />
+                <span>{formatTime(timeLeft)}</span>
+              </div>
+            </div>
+            <Progress value={calculateProgress()} className="h-1 bg-gray-800" />
+          </div>
+
+          {/* Main content */}
+          <div className="flex-1 flex flex-col md:flex-row">
+            {/* MCQ Section */}
+            {currentSection === 'mcq' && test.questions && test.questions.length > 0 && (
+              <div className="flex-1 p-6">
+                <div className="max-w-3xl mx-auto">
+                  <div className="mb-6">
+                    <h1 className="text-2xl font-bold mb-2">{test.title}</h1>
+                    {test.description && <p className="text-gray-400">{test.description}</p>}
+                  </div>
+                  
+                  <Card className="bg-gray-900 border-gray-800 p-6 mb-6">
+                    <h2 className="text-xl font-semibold mb-6">
+                      {currentIndex + 1}. {test.questions[currentIndex].question}
+                    </h2>
+                    
+                    <RadioGroup
+                      value={answers[test.questions[currentIndex].id]?.toString()}
+                      onValueChange={(value) => handleMcqAnswerSelect(test.questions[currentIndex].id, parseInt(value))}
+                      className="space-y-4"
+                    >
+                      {test.questions[currentIndex].options?.map((option: string, index: number) => (
+                        <div key={index} className="flex items-center space-x-3 p-3 rounded-lg bg-gray-800/50 hover:bg-gray-800 transition-colors">
+                          <RadioGroupItem value={index.toString()} id={`${test.questions[currentIndex].id}-${index}`} />
+                          <Label
+                            htmlFor={`${test.questions[currentIndex].id}-${index}`}
+                            className="flex-1 text-sm cursor-pointer"
+                          >
+                            {option}
+                          </Label>
+                        </div>
+                      ))}
+                    </RadioGroup>
+                  </Card>
+                  
+                  <div className="flex justify-between mt-6">
+                    <Button
+                      onClick={handlePrevious}
+                      disabled={currentIndex === 0 && (!test.problems || test.problems.length === 0)}
+                      variant="outline"
+                      className="flex items-center"
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-2" />
+                      Previous
+                    </Button>
+                    
+                    <Button
+                      onClick={handleNext}
+                      className="flex items-center"
+                    >
+                      {currentIndex < test.questions.length - 1 || (test.problems && test.problems.length > 0) ? (
+                        <>
+                          Next
+                          <ChevronRight className="w-4 h-4 ml-2" />
+                        </>
+                      ) : (
+                        "Submit"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Programming Section */}
+            {currentSection === 'programming' && test.problems && test.problems.length > 0 && (
+              <ResizablePanelGroup direction="horizontal" className="flex-1">
+                {/* Rest of the programming UI stays mostly the same */}
+                {/* Problem Description Panel */}
+                <ResizablePanel defaultSize={40} minSize={30}>
+                  <div className="p-6 h-full overflow-y-auto">
+                    <div className="space-y-6">
+                      <div>
+                        <h1 className="text-2xl font-bold">{test.problems[currentIndex].title}</h1>
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold mb-2">Problem Description</h2>
+                        <div className="text-gray-300 space-y-4" dangerouslySetInnerHTML={{ __html: test.problems[currentIndex].description }} />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold mb-2">Input Format</h2>
+                        <div className="text-gray-300 space-y-4" dangerouslySetInnerHTML={{ __html: test.problems[currentIndex].inputFormat }} />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold mb-2">Output Format</h2>
+                        <div className="text-gray-300 space-y-4" dangerouslySetInnerHTML={{ __html: test.problems[currentIndex].outputFormat }} />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold mb-2">Constraints</h2>
+                        <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                          {test.problems[currentIndex].constraints.map((constraint, index) => (
+                            <li key={index}>{constraint}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold mb-2">Examples</h2>
+                        <div className="space-y-4">
+                          {Array.isArray(test.problems[currentIndex].samples) ? (
+                            test.problems[currentIndex].samples.map((sample, index) => (
+                              <div key={index} className="space-y-2">
+                                <h3 className="text-md font-medium">Example {index + 1}</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <h5 className="text-sm font-medium text-gray-300">Input:</h5>
+                                      <button 
+                                        onClick={() => navigator.clipboard.writeText(sample.input)}
+                                        className="p-1.5 rounded-md bg-gray-700/50 hover:bg-gray-700 transition-colors"
+                                      >
+                                        <Copy className="w-4 h-4 text-gray-400" />
+                                      </button>
+                                    </div>
+                                    <pre className="text-sm p-3 rounded overflow-x-auto border border-gray-700/50 bg-gray-900/50 w-full">
+                                      {sample.input}
+                                    </pre>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <h5 className="text-sm font-medium text-gray-300">Output:</h5>
+                                      <button 
+                                        onClick={() => navigator.clipboard.writeText(sample.output)}
+                                        className="p-1.5 rounded-md bg-gray-700/50 hover:bg-gray-700 transition-colors"
+                                      >
+                                        <Copy className="w-4 h-4 text-gray-400" />
+                                      </button>
+                                    </div>
+                                    <pre className="text-sm p-3 rounded overflow-x-auto border border-gray-700/50 bg-gray-900/50 w-full">
+                                      {sample.output}
+                                    </pre>
+                                  </div>
+                                </div>
+                                {sample.explanation && (
+                                  <div className="space-y-2">
+                                    <h5 className="text-sm font-medium text-gray-300">Explanation:</h5>
+                                    <div className="text-sm p-3 rounded border border-gray-700/50 bg-gray-900/50">
+                                      {sample.explanation}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <h5 className="text-sm font-medium text-gray-300">Input:</h5>
+                                    <button 
+                                      onClick={() => navigator.clipboard.writeText(test.problems[currentIndex].samples.input)}
+                                      className="p-1.5 rounded-md bg-gray-700/50 hover:bg-gray-700 transition-colors"
+                                    >
+                                      <Copy className="w-4 h-4 text-gray-400" />
+                                    </button>
+                                  </div>
+                                  <pre className="text-sm p-3 rounded overflow-x-auto border border-gray-700/50 bg-gray-900/50 w-full">
+                                    {test.problems[currentIndex].samples.input}
+                                  </pre>
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <h5 className="text-sm font-medium text-gray-300">Output:</h5>
+                                    <button 
+                                      onClick={() => navigator.clipboard.writeText(test.problems[currentIndex].samples.output)}
+                                      className="p-1.5 rounded-md bg-gray-700/50 hover:bg-gray-700 transition-colors"
+                                    >
+                                      <Copy className="w-4 h-4 text-gray-400" />
+                                    </button>
+                                  </div>
+                                  <pre className="text-sm p-3 rounded overflow-x-auto border border-gray-700/50 bg-gray-900/50 w-full">
+                                    {test.problems[currentIndex].samples.output}
+                                  </pre>
+                                </div>
+                              </div>
+                              {test.problems[currentIndex].samples.explanation && (
+                                <div className="space-y-2">
+                                  <h5 className="text-sm font-medium text-gray-300">Explanation:</h5>
+                                  <div className="text-sm p-3 rounded border border-gray-700/50 bg-gray-900/50">
+                                    {test.problems[currentIndex].samples.explanation}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Navigation buttons for programming section */}
+                      <div className="flex justify-between pt-4">
+                        <Button
+                          onClick={handlePrevious}
+                          disabled={currentIndex === 0 && (!test.questions || test.questions.length === 0)}
+                          variant="outline"
+                          className="flex items-center"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-2" />
+                          Previous
+                        </Button>
+                        
+                        <Button
+                          onClick={handleNext}
+                          className="flex items-center"
+                        >
+                          {currentIndex < test.problems.length - 1 || (test.questions && test.questions.length > 0) ? (
+                            <>
+                              Next
+                              <ChevronRight className="w-4 h-4 ml-2" />
+                            </>
+                          ) : (
+                            "Submit"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </ResizablePanel>
+
+                <ResizableHandle />
+
+                {/* Editor Panel - Rest of the programming UI stays the same */}
+                <ResizablePanel defaultSize={60}>
+                  <div className="h-full [&_.monaco-editor-background]:!bg-transparent [&_.monaco-editor]:outline-none [&_.monaco-editor]:!border-0 [&_.monaco-editor]:focus:!border-0 [&_.monaco-editor]:focus:!outline-none">
+                    <CodeEditor 
+                      code={code} 
+                      setCode={(value) => {
+                        if (!value) return;
+                        setCode(value);
+                      }}
+                      language={selectedLanguage}
+                      theme={theme}
+                      fontSize={fontSize}
+                      tabSize={tabSize}
+                    />
+                  </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+} 

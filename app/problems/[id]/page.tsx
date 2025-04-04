@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Play, Maximize2, ChevronLeft, ChevronRight, Clock, BookOpen, Code2, CheckCircle2 } from 'lucide-react';
-import Editor from '@monaco-editor/react';
 import Image from 'next/image';
+import CodeEditor from '@/components/ui/code-editor';
 
 interface Problem {
   id: string;
@@ -338,58 +338,6 @@ const problems: Problem[] = [
     pass`
   }
 ];
-
-const CodeEditor = ({ 
-  code, 
-  setCode,
-  language 
-}: { 
-  code: string; 
-  setCode: React.Dispatch<React.SetStateAction<string>>;
-  language: string;
-}) => {
-  const handleEditorChange = (value: string | undefined) => {
-    if (value) {
-      setCode(value);
-    }
-  };
-
-  return (
-    <div className="h-full w-full">
-      <Editor
-        height="100%"
-        defaultLanguage={language}
-        language={language}
-        theme="vs-dark"
-        value={code}
-        onChange={handleEditorChange}
-        options={{
-          fontSize: 14,
-          fontFamily: "'JetBrains Mono', monospace",
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          automaticLayout: true,
-          lineNumbers: 'on',
-          wordWrap: 'on',
-          suggestOnTriggerCharacters: true,
-          parameterHints: {
-            enabled: true
-          },
-          bracketPairColorization: {
-            enabled: true
-          },
-          guides: {
-            bracketPairs: true
-          },
-          tabSize: 4,
-          insertSpaces: true,
-          formatOnPaste: true,
-          formatOnType: true
-        }}
-      />
-    </div>
-  );
-};
 
 export default function ProblemPage({ params }: { params: { id: string } }) {
   const [activeTab, setActiveTab] = useState<'description' | 'test'>('description');
@@ -984,11 +932,13 @@ export default function ProblemPage({ params }: { params: { id: string } }) {
           </div>
 
           <div className="editor-container flex-1">
-            <CodeEditor 
-              code={code} 
-              setCode={setCode} 
-              language={selectedLanguage.monacoId}
-            />
+            <div className="h-full">
+              <CodeEditor 
+                code={code} 
+                onChange={(value: string) => setCode(value)}
+                language={selectedLanguage.monacoId}
+              />
+            </div>
           </div>
           <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-800 flex-none">
             <button

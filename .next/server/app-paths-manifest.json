@@ -1,9 +1,5 @@
 {
-  "/courses/page": "app/courses/page.js",
-  "/problems/[id]/page": "app/problems/[id]/page.js",
-  "/courses/[id]/page": "app/courses/[id]/page.js",
-  "/problems/page": "app/problems/page.js",
-  "/dashboard/page": "app/dashboard/page.js",
+  "/courses/[courseId]/tests/[testId]/attempt/page": "app/courses/[courseId]/tests/[testId]/attempt/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/api/run-code/route": "app/api/run-code/route.js"
+  "/courses/[courseId]/tests/[testId]/page": "app/courses/[courseId]/tests/[testId]/page.js"
 }

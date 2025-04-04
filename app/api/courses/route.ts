@@ -1,56 +1,167 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { authOptions } from '../auth/[...nextauth]/route';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user) {
+      return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    // Fetch all courses with their enrollments
+    const { searchParams } = new URL(request.url);
+    const instructorId = searchParams.get('instructorId');
+
     const courses = await prisma.course.findMany({
+      where: instructorId ? { instructorId } : undefined,
       include: {
         instructor: {
           select: {
             id: true,
             name: true,
-            image: true,
+            email: true,
           },
         },
-        enrollments: {
-          where: {
-            userId: session.user.id,
-          },
-          select: {
-            status: true,
-            progress: true,
-            completedLessons: true,
-          },
-        },
+        enrollments: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
 
-    // Transform the courses to include enrollment status
-    const transformedCourses = courses.map((course) => {
-      const enrollment = course.enrollments[0];
-      return {
-        ...course,
-        enrollmentStatus: enrollment ? 'ENROLLED' : 'NOT_ENROLLED',
-        progress: enrollment?.progress || 0,
-        completedLessons: enrollment?.completedLessons || [],
-      };
+    return NextResponse.json(courses);
+  } catch (error) {
+    console.error('[COURSES_GET]', error);
+    return new NextResponse('Internal error', { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user || session.user.role !== 'ADMIN') {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
+
+    const body = await request.json();
+    const {
+      title,
+      description,
+      image,
+      price,
+      level,
+      duration,
+      lessons,
+      category,
+      tags,
+      startDate,
+      endDate,
+      instructorId,
+    } = body;
+
+    if (!title || !description || !image || !instructorId) {
+      return new NextResponse('Missing required fields', { status: 400 });
+    }
+
+    const course = await prisma.course.create({
+      data: {
+        title,
+        description,
+        image,
+        price,
+        level,
+        duration,
+        lessons,
+        category,
+        tags,
+        startDate,
+        endDate,
+        instructorId,
+      },
     });
 
-    return NextResponse.json(transformedCourses);
+    return NextResponse.json(course);
   } catch (error) {
-    console.error('Error fetching courses:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch courses' },
-      { status: 500 }
-    );
+    console.error('[COURSES_POST]', error);
+    return new NextResponse('Internal error', { status: 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user || session.user.role !== 'ADMIN') {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
+
+    const body = await request.json();
+    const {
+      id,
+      title,
+      description,
+      image,
+      price,
+      level,
+      duration,
+      lessons,
+      category,
+      tags,
+      startDate,
+      endDate,
+      instructorId,
+    } = body;
+
+    if (!id || !title || !description || !image || !instructorId) {
+      return new NextResponse('Missing required fields', { status: 400 });
+    }
+
+    const course = await prisma.course.update({
+      where: { id },
+      data: {
+        title,
+        description,
+        image,
+        price,
+        level,
+        duration,
+        lessons,
+        category,
+        tags,
+        startDate,
+        endDate,
+        instructorId,
+      },
+    });
+
+    return NextResponse.json(course);
+  } catch (error) {
+    console.error('[COURSES_PUT]', error);
+    return new NextResponse('Internal error', { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user || session.user.role !== 'ADMIN') {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return new NextResponse('Missing course ID', { status: 400 });
+    }
+
+    await prisma.course.delete({
+      where: { id },
+    });
+
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    console.error('[COURSES_DELETE]', error);
+    return new NextResponse('Internal error', { status: 500 });
   }
 } 

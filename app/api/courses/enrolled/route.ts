@@ -2,75 +2,74 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/lib/auth';
+import { Prisma } from '@prisma/client';
 
-interface Instructor {
-  id: string;
-  name: string | null;
-  image: string | null;
-}
+type EnrolledCourseWithRelations = Prisma.EnrolledCourseGetPayload<{
+  include: {
+    course: {
+      include: {
+        instructor: {
+          select: {
+            id: true;
+            name: true;
+            image: true;
+          };
+        };
+      };
+    };
+  };
+}>;
 
-interface CourseWithInstructor {
-  id: string;
-  title: string;
-  description: string;
-  instructorId: string;
-  instructor: Instructor;
-  image: string;
-  price: number;
-  level: string;
-  duration: string;
-  lessons: number;
-  rating: number;
-  students: number;
-  category: string;
-  tags: string[];
-  startDate: Date;
-  endDate: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface EnrollmentWithCourse {
-  id: string;
-  userId: string;
-  courseId: string;
-  course: CourseWithInstructor;
-  enrolledAt: Date;
-  completedLessons: number[];
-  progress: number;
-  status: string;
-  lastAccessed: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface ProcessedCourse extends CourseWithInstructor {
+type ProcessedCourse = Prisma.CourseGetPayload<{
+  include: {
+    instructor: {
+      select: {
+        id: true;
+        name: true;
+        image: true;
+      };
+    };
+  };
+}> & {
   enrollmentStatus: 'enrolled';
   progress: number;
   lastAccessed: string | null;
   status: string;
   enrolledAt: string;
   completedLessons: number[];
-}
+  deadline: string | null;
+  isStarred: boolean;
+  isRemoved: boolean;
+};
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Get the session
     const session = await getServerSession(authOptions);
-    console.log('Session:', session); // Debug log
+    console.log('Session:', JSON.stringify(session, null, 2));
 
     if (!session?.user?.id) {
-      console.log('No session or user ID found'); // Debug log
+      console.log('No user ID in session:', session?.user);
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    // Find enrolled courses directly using the user ID from the session
-    const enrolledCourses = await prisma.enrollment.findMany({
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+    const search = searchParams.get('search')?.toLowerCase();
+    const sortBy = searchParams.get('sortBy') || 'lastAccessed';
+
+    // Find enrolled courses with filters
+    const enrolledCourses = await prisma.enrolledCourse.findMany({
       where: {
         userId: session.user.id,
+        ...(status === 'in-progress' && { progress: { gt: 0, lt: 100 } }),
+        ...(status === 'future' && { progress: 0 }),
+        ...(status === 'past' && { progress: 100 }),
+        ...(status === 'starred' && { isStarred: true }),
+        ...(status === 'removed' && { isRemoved: true }),
       },
       include: {
         course: {
@@ -85,27 +84,42 @@ export async function GET() {
           },
         },
       },
+      orderBy: sortBy === 'lastAccessed' 
+        ? { lastAccessed: 'desc' }
+        : sortBy === 'deadline'
+        ? { deadline: 'asc' }
+        : { createdAt: 'desc' },
     });
-    console.log('Enrolled courses:', enrolledCourses); // Debug log
 
-    // Process enrollments
-    const processedCourses = enrolledCourses.map(enrollment => {
-      const course = enrollment.course;
-      return {
-        ...course,
-        enrollmentStatus: 'enrolled' as const,
+    console.log('Found enrolled courses:', enrolledCourses.length);
+
+    // Process and filter courses
+    const processedCourses = enrolledCourses
+      .map((enrollment: EnrolledCourseWithRelations): ProcessedCourse => ({
+        ...enrollment.course,
+        enrollmentStatus: 'enrolled',
         progress: enrollment.progress,
         lastAccessed: enrollment.lastAccessed?.toISOString() || null,
         status: enrollment.status,
-        enrolledAt: enrollment.enrolledAt.toISOString(),
+        enrolledAt: enrollment.createdAt.toISOString(),
         completedLessons: enrollment.completedLessons,
-      };
-    });
+        deadline: enrollment.deadline?.toISOString() || null,
+        isStarred: enrollment.isStarred,
+        isRemoved: enrollment.isRemoved,
+      }))
+      .filter((course: ProcessedCourse) => {
+        if (!search) return true;
+        return (
+          course.title.toLowerCase().includes(search) ||
+          course.instructor.name?.toLowerCase().includes(search) ||
+          course.category.toLowerCase().includes(search)
+        );
+      });
 
-    // Return all courses in a flat array
+    console.log('Processed courses:', processedCourses.length);
     return NextResponse.json(processedCourses);
   } catch (error) {
-    console.error('Detailed error:', error); // Debug log
+    console.error('Error fetching enrolled courses:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to fetch enrolled courses' },
       { status: 500 }
